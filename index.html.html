@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>五子棋游戏</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #1e90ff; /* 整体背景调成蓝色 */
+            font-family: Arial, sans-serif;
+        }
+        #game-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        #game-board {
+            background-color: #f3d2b5;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            border-radius: 10px;
+        }
+        #info {
+            margin-top: 20px;
+            font-size: 20px;
+            text-align: center;
+            color: white; /* 提示信息字体颜色为白色 */
+        }
+        #white-player, #black-player {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 32px;
+            font-weight: bold;
+            writing-mode: vertical-rl; /* 竖向排列 */
+            text-orientation: upright; /* 文字方向为正 */
+            color: white; /* 白棋文字颜色为白色 */
+        }
+        #white-player {
+            left: -150px; /* 调整左边距 */
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+        }
+        #black-player {
+            right: -150px; /* 调整右边距 */
+            color: black; /* 黑棋文字颜色为黑色 */
+            text-shadow: 0 0 10px rgba(0, 0, 0, 0.8);
+        }
+        .active {
+            text-shadow: 0 0 20px rgba(255, 255, 255, 1); /* 发光效果 */
+        }
+        #question-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            display: none;
+        }
+        #question-text {
+            font-size: 20px;
+            margin-bottom: 10px;
+        }
+        #options-container {
+            display: flex;
+            flex-direction: column;
+        }
+        .option {
+            margin: 5px;
+            padding: 10px;
+            background-color: #f0f0f0;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .option:hover {
+            background-color: #ddd;
+        }
+        #error-message {
+            color: red;
+            font-size: 16px;
+            margin-top: 10px;
+            display: none;
+        }
+        .health-bar {
+            position: absolute;
+            top: 10px;
+            width: 100px;
+            height: 20px;
+            background-color: #ccc;
+            border: 2px solid #000;
+        }
+        #white-health-bar {
+            left: 10px;
+        }
+        #black-health-bar {
+            right: 10px;
+        }
+        .health-fill {
+            height: 100%;
+            background-color: red;
+        }
+        #restart-button, #ai-button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+        #restart-button:hover, #ai-button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="white-player">白棋，一号玩家</div>
+        <canvas id="game-board" width="400" height="400"></canvas>
+        <div id="black-player">黑棋，二号玩家</div>
+    </div>
+    <div id="info">黑棋先行</div>
+    <!-- 血条 -->
+    <div id="white-health-bar" class="health-bar">
+        <div id="white-health-fill" class="health-fill" style="width: 100%;"></div>
+    </div>
+    <div id="black-health-bar" class="health-bar">
+        <div id="black-health-fill" class="health-fill" style="width: 100%;"></div>
+    </div>
+    <!-- 答题容器 -->
+    <div id="question-container">
+        <div id="question-text"></div>
+        <div id="options-container"></div>
+        <div id="error-message">答题错误，请稍后再试！</div>
+    </div>
+    <!-- 重来按钮 -->
+    <button id="restart-button">重来</button>
+    <!-- 和AI对战按钮 -->
+    <button id="ai-button">和AI对战</button>
+    <script>
+        const canvas = document.getElementById('game-board');
+        const ctx = canvas.getContext('2d');
+        const info = document.getElementById('info');
+        const whitePlayer = document.getElementById('white-player');
+        const blackPlayer = document.getElementById('black-player');
+        const questionContainer = document.getElementById('question-container');
+        const questionText = document.getElementById('question-text');
+        const optionsContainer = document.getElementById('options-container');
+        const errorMessage = document.getElementById('error-message');
+        const whiteHealthFill = document.getElementById('white-health-fill');
+        const blackHealthFill = document.getElementById('black-health-fill');
+        const restartButton = document.getElementById('restart-button');
+        const aiButton = document.getElementById('ai-button');
+        const boardSize = 400;
+        const cellSize = boardSize / 15;
+        let board = Array.from({ length: 15 }, () => Array(15).fill(null));
+        let currentPlayer = 'black';
+        let gameOver = false;
+        let roundCounter = 0; // 轮次计数器
+        let isAIMode = false; // 是否处于AI对战模式
+        // 初始血量
+        let whiteHealth = 100;
+        let blackHealth = 100;
+        // 连续答错计数器
+        let consecutiveWrongAnswers = 0;
+        // 题库
+        const questions = [
+            {
+                question: "What is the past tense of 'dance'?",
+                options: ["dancing", "dances", "dance", "danced"],
+                answer: "danced"
+            },
+            {
+                question: "Which word is a preposition?",
+                options: ["plants", "in", "backyard", "wonderful"],
+                answer: "in"
+            },
+            {
+                question: "What is the future tense of 'join'?",
+                options: ["joins", "will joins", "will join", "join"],
+                answer: "will join"
+            },
+            {
+                question: "Which word is an adverb?",
+                options: ["noun", "verb", "adjective", "adverb"],
+                answer: "adverb"
+            }
+        ];
+        function drawBoard() {
+            ctx.clearRect(0, 0, boardSize, boardSize);
+            ctx.strokeStyle = '#000';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 15; i++) {
+                ctx.beginPath();
+                ctx.moveTo(i * cellSize + cellSize / 2, cellSize / 2);
+                ctx.lineTo(i * cellSize + cellSize / 2, boardSize - cellSize / 2);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(cellSize / 2, i * cellSize + cellSize / 2);
+                ctx.lineTo(boardSize - cellSize / 2, i * cellSize + cellSize / 2);
+                ctx.stroke();
+            }
+        }
+        function drawPiece(x, y, color) {
+            ctx.beginPath();
+            ctx.arc(x * cellSize + cellSize / 2, y * cellSize + cellSize / 2, cellSize / 2 - 2, 0, Math.PI * 2);
+            ctx.fillStyle = color;
+            ctx.fill();
+            ctx.stroke();
+        }
+        function checkWin(x, y) {
+            const directions = [
+                [1, 0], [0, 1], [1, 1], [1, -1]
+            ];
+            for (const [dx, dy] of directions) {
+                let count = 1;
+                for (let i = 1; i < 5; i++) {
+                    const nx = x + dx * i;
+                    const ny = y + dy * i;
+                    if (nx >= 0 && nx < 15 && ny >= 0 && ny < 15 && board[nx][ny] === currentPlayer) {
+                        count++;
+                    } else {
+                        break;
+                    }
+                }
+                for (let i = 1; i < 5; i++) {
+                    const nx = x - dx * i;
+                    const ny = y - dy * i;
+                    if (nx >= 0 && nx < 15 && ny >= 0 && ny < 15 && board[nx][ny] === currentPlayer) {
+                        count++;
+                    } else {
+                        break;
+                    }
+                }
+                if (count >= 5) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        function updatePlayerDisplay() {
+            if (currentPlayer === 'white') {
+                whitePlayer.classList.add('active');
+                blackPlayer.classList.remove('active');
+            } else {
+                blackPlayer.classList.add('active');
+                whitePlayer.classList.remove('active');
+            }
+        }
+        function showQuestion() {
+            const randomQuestion = questions[Math.floor(Math.random() * questions.length)];
+            questionText.textContent = randomQuestion.question;
+            optionsContainer.innerHTML = '';
+            randomQuestion.options.forEach(option => {
+                const optionElement = document.createElement('div');
+                optionElement.classList.add('option');
+                optionElement.textContent = option;
+                optionElement.addEventListener('click', () => handleAnswer(option, randomQuestion.answer));
+                optionsContainer.appendChild(optionElement);
+            });
+            questionContainer.style.display = 'block';
+        }
+        function handleAnswer(selectedAnswer, correctAnswer) {
+            if (selectedAnswer === correctAnswer) {
+                questionContainer.style.display = 'none';
+                errorMessage.style.display = 'none';
+                consecutiveWrongAnswers = 0; // 答对后重置连续答错计数器
+                placePiece(); // 继续下棋
+            } else {
+                consecutiveWrongAnswers++; // 答错后增加连续答错计数器
+                if (consecutiveWrongAnswers === 2) { // 连续答错两次
+                    deductHealth(); // 扣除血量
+                    consecutiveWrongAnswers = 0; // 重置连续答错计数器
+                    questionContainer.style.display = 'none'; // 隐藏题目
+                    placePiece(); // 继续下棋
+                } else {
+                    errorMessage.style.display = 'block';
+                    setTimeout(() => {
+                        errorMessage.style.display = 'none';
+                        showQuestion(); // 换一道题
+                    }, 2000);
+                }
+            }
+        }
+        function deductHealth() {
+            if (currentPlayer === 'black') {
+                blackHealth -= 10;
+                blackHealthFill.style.width = `${blackHealth}%`;
+                if (blackHealth <= 0) {
+                    gameOver = true;
+                    info.textContent = "白棋获胜！";
+                }
+            } else {
+                whiteHealth -= 10;
+                whiteHealthFill.style.width = `${whiteHealth}%`;
+                if (whiteHealth <= 0) {
+                    gameOver = true;
+                    info.textContent = "黑棋获胜！";
+                }
+            }
+        }
+        function placePiece(x, y) {
+            if (x >= 0 && x < 15 && y >= 0 && y < 15 && board[x][y] === null) {
+                board[x][y] = currentPlayer;
+                drawPiece(x, y, currentPlayer);
+                if (checkWin(x, y)) {
+                    info.textContent = `${currentPlayer === 'black' ? '黑棋' : '白棋'}获胜！`;
+                    gameOver = true;
+                } else {
+                    currentPlayer = currentPlayer === 'black' ? 'white' : 'black';
+                    info.textContent = `${currentPlayer === 'black' ? '黑棋' : '白棋'}下`;
+                    updatePlayerDisplay();
+                    // 如果是AI模式且轮到白棋（AI），则AI下棋
+                    if (isAIMode && currentPlayer === 'white' && !gameOver) {
+                        setTimeout(AIMove, 500); // AI延迟500毫秒下棋
+                    }
+                }
+            }
+        }
+        function AIMove() {
+            // 优先堵截玩家的三子或四子连珠
+            const blockMove = findBlockingMove('black');
+            if (blockMove) {
+                placePiece(blockMove.x, blockMove.y);
+                return;
+            }
+            // 优先完成自己的三子或四子连珠
+            const winMove = findWinningMove('white');
+            if (winMove) {
+                placePiece(winMove.x, winMove.y);
+                return;
+            }
+            // 如果没有堵截或连子的机会，随机选择一个空位下棋
+            const emptyCells = [];
+            for (let x = 0; x < 15; x++) {
+                for (let y = 0; y < 15; y++) {
+                    if (board[x][y] === null) {
+                        emptyCells.push({ x, y });
+                    }
+                }
+            }
+            if (emptyCells.length > 0) {
+                const randomCell = emptyCells[Math.floor(Math.random() * emptyCells.length)];
+                placePiece(randomCell.x, randomCell.y);
+            }
+        }
+        function findBlockingMove(player) {
+            const directions = [
+                [1, 0], [0, 1], [1, 1], [1, -1]
+            ];
+            for (let x = 0; x < 15; x++) {
+                for (let y = 0; y < 15; y++) {
+                    if (board[x][y] === null) {
+                        for (const [dx, dy] of directions) {
+                            let count = 0;
+                            for (let i = 1; i < 5; i++) {
+                                const nx = x + dx * i;
+                                const ny = y + dy * i;
+                                if (nx >= 0 && nx < 15 && ny >= 0 && ny < 15 && board[nx][ny] === player) {
+                                    count++;
+                                } else {
+                                    break;
+                                }
+                            }
+                            if (count >= 3) {
+                                return { x, y };
+                            }
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+        function findWinningMove(player) {
+            const directions = [
+                [1, 0], [0, 1], [1, 1], [1, -1]
+            ];
+            for (let x = 0; x < 15; x++) {
+                for (let y = 0; y < 15; y++) {
+                    if (board[x][y] === null) {
+                        for (const [dx, dy] of directions) {
+                            let count = 0;
+                            for (let i = 1; i < 5; i++) {
+                                const nx = x + dx * i;
+                                const ny = y + dy * i;
+                                if (nx >= 0 && nx < 15 && ny >= 0 && ny < 15 && board[nx][ny] === player) {
+                                    count++;
+                                } else {
+                                    break;
+                                }
+                            }
+                            if (count >= 3) {
+                                return { x, y };
+                            }
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+        function handleClick(event) {
+            if (gameOver || (isAIMode && currentPlayer === 'white')) return;
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.round((event.clientX - rect.left) / cellSize);
+            const y = Math.round((event.clientY - rect.top) / cellSize);
+            roundCounter++; // 每下棋一次，计数器加1
+            if (roundCounter % 4 === 0) { // 每4轮出一次题
+                showQuestion();
+            } else {
+                placePiece(x, y);
+            }
+        }
+        function resetGame() {
+            // 重置棋盘
+            board = Array.from({ length: 15 }, () => Array(15).fill(null));
+            drawBoard();
+            // 重置血量
+            whiteHealth = 100;
+            blackHealth = 100;
+            whiteHealthFill.style.width = '100%';
+            blackHealthFill.style.width = '100%';
+            // 重置游戏状态
+            currentPlayer = 'black';
+            gameOver = false;
+            roundCounter = 0;
+            consecutiveWrongAnswers = 0;
+            info.textContent = "黑棋先行";
+            updatePlayerDisplay();
+            // 隐藏题目和错误提示
+            questionContainer.style.display = 'none';
+            errorMessage.style.display = 'none';
+        }
+        function startAIMode() {
+            isAIMode = true;
+            resetGame(); // 重置游戏
+            info.textContent = "和AI对战，黑棋先行";
+        }
+        drawBoard();
+        updatePlayerDisplay();
+        canvas.addEventListener('click', handleClick);
+        restartButton.addEventListener('click', resetGame);
+        aiButton.addEventListener('click', startAIMode);
+    </script>
+</body>
+</html>
